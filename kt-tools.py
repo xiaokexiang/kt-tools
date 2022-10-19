@@ -38,37 +38,49 @@ config_json = {
 
 
 def kt():
-    base_dir = os.path.expanduser('~') + '/.kube/'
-    servers_file = base_dir + 'servers.json'
-    config_path = base_dir + 'config'
-    select, server = check_file(servers_file)
-    if select and bool(server):
-        server = dict(server)
-        ip = server.get('ip')
-        username = server.get('username')
-        password = server.get('password')
-    else:
-        ip = None
-        while ip is None:
-            ip = input('请输入IP地址: ')
-        time.sleep(0.5)
-        username = input('请输入用户名称: ')
-        time.sleep(0.5)
-        password = input('请输入密码: ')
-        username = 'root' if username is None or username == '' else username
-        time.sleep(0.5)
-        image = input('请输入镜像名: ')
-        image = 'abcsys.cn:5000/public/kt-connect-shadow:stable' if image is None or image == '' else image
-    # if not ssh_connect(ip, username, password):
-    #     input('按任意键退出！')
-    #     exit(0)
-    # else:
-    store_servers(ip, username, password, image, servers_file)
-    if not sftp_transfer(ip, 22, username, password, base_dir, '/etc/kubernetes/pki/'):
+    try:
+        print('------------------> kt-tools version: 0.1.0 <------------------')
+        base_dir = os.path.expanduser('~') + '/.kube/'
+        servers_file = base_dir + 'servers.json'
+        config_path = base_dir + 'config'
+        select, server = check_file(servers_file)
+        if select and bool(server):
+            server = dict(server)
+            ip = server.get('ip')
+            username = server.get('username')
+            password = server.get('password')
+            image = server.get('image')
+        else:
+            ip = None
+            while ip is None or ip == '':
+                ip = input('请输入IP地址: ')
+            time.sleep(0.5)
+            username = input('请输入用户名称（回车跳过）: ')
+            time.sleep(0.5)
+            username = 'root' if username is None or username == '' else username
+            password = input('请输入密码: ')
+            while password is None or password == '':
+                password = input('请输入密码: ')
+            time.sleep(0.5)
+            image = input('请输入镜像名（回车跳过）: ')
+            image = 'abcsys.cn:5000/public/kt-connect-shadow:stable' if image is None or image == '' else image
+        # if not ssh_connect(ip, username, password):
+        #     input('按任意键退出！')
+        #     exit(0)
+        # else:
+        if not sftp_transfer(ip, 22, username, password, base_dir, '/etc/kubernetes/pki/'):
+            raise NameError
+        else:
+            store_servers(ip, username, password, image, servers_file)
+            generate_config(ip, config_path)
+            exec_command()
+    except NameError as e:
+        input('按任意键推出...')
+        exit(100)
+    except Exception as e:
+        print('未知异常: {0}'.format(e.args[0]))
+        input('按任意键推出...')
         exit(101)
-    else:
-        generate_config(ip, config_path)
-        exec_command()
 
 
 def check_file(servers_file):
@@ -121,17 +133,8 @@ def ssh_connect(ip, username, password):
         print('服务器: {0}登录成功！'.format(ip))
         return True
     except Exception as e:
-        print("服务器: {0}登录失败，错误原因: {1}".format(ip, e.args))
+        print("服务器: {0}登录失败，错误原因: {1}".format(ip, e.args[0]))
         return False
-
-
-def progress_bar(transferred, toBeTransferred, suffix=''):
-    bar_len = 100
-    filled_len = int(round(bar_len * transferred / float(toBeTransferred)))
-    percents = round(100.0 * transferred / float(toBeTransferred), 1)
-    bar = '\033[32;1m%s\033[0m' % '=' * filled_len + '-' * (bar_len - filled_len)
-    sys.stdout.write('[%s] %s%s %s\r' % (bar, '\033[32;1m%s\033[0m' % percents, '%', suffix))
-    sys.stdout.flush()
 
 
 def sftp_transfer(ip, port, username, password, local_path, server_path):
@@ -154,18 +157,18 @@ def sftp_transfer(ip, port, username, password, local_path, server_path):
             for i in range(0, scale, 10):
                 file = remote_files[int(i / 10)]
                 print("\r", end="")
-                print("传输进度: {}%: ".format(round(i * 10 / total, 1)), "▋" * (i // 2), end="")
+                print("传输进度: {}: ".format('{:.1%}'.format((i + 10) / scale)), "▋" * (i // 2), end="")
                 local_file = local_path + file
                 remote_file = server_path + file
                 if not os.path.exists(local_file):
                     sftp.get(remote_file, local_file)
                 sys.stdout.flush()
             print('\r')
-            print("文件按传输完成，正在启动kt-connect！\r")
+            print("文件传输完成，正在启动kt-connect！\r")
             t.close()
             return True
         except Exception as e:
-            print('传输kubernetes pki文件失败，错误原因: {0}'.format(e.args))
+            print('传输kubernetes pki文件失败，错误原因: {0}'.format(e.args[0]))
             shutil.rmtree(local_path)
             return False
 
