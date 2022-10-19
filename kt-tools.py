@@ -1,10 +1,12 @@
+import json
+import os
+import shutil
+import sys
 import time
 from functools import reduce
 
 import IPy
 import paramiko
-import os
-import json
 import yaml
 
 config_json = {
@@ -54,14 +56,19 @@ def kt():
         time.sleep(0.5)
         password = input('请输入密码: ')
         username = 'root' if username is None or username == '' else username
-    if not ssh_connect(ip, username, password):
-        input('按任意键退出！')
-        exit(0)
+        time.sleep(0.5)
+        image = input('请输入镜像名: ')
+        image = 'abcsys.cn:5000/public/kt-connect-shadow:stable' if image is None or image == '' else image
+    # if not ssh_connect(ip, username, password):
+    #     input('按任意键退出！')
+    #     exit(0)
+    # else:
+    store_servers(ip, username, password, image, servers_file)
+    if not sftp_transfer(ip, 22, username, password, base_dir, '/etc/kubernetes/pki/'):
+        exit(101)
     else:
-        store_servers(ip, username, password, servers_file)
-        sftp_transfer(ip, 22, username, password, base_dir, '/etc/kubernetes/pki/')
         generate_config(ip, config_path)
-        exec_command(base_dir)
+        exec_command()
 
 
 def check_file(servers_file):
@@ -118,29 +125,48 @@ def ssh_connect(ip, username, password):
         return False
 
 
+def progress_bar(transferred, toBeTransferred, suffix=''):
+    bar_len = 100
+    filled_len = int(round(bar_len * transferred / float(toBeTransferred)))
+    percents = round(100.0 * transferred / float(toBeTransferred), 1)
+    bar = '\033[32;1m%s\033[0m' % '=' * filled_len + '-' * (bar_len - filled_len)
+    sys.stdout.write('[%s] %s%s %s\r' % (bar, '\033[32;1m%s\033[0m' % percents, '%', suffix))
+    sys.stdout.flush()
+
+
 def sftp_transfer(ip, port, username, password, local_path, server_path):
     local_path = local_path + ip + '/'
-    if os.path.exists(local_path):
-        print('kubernetes pki文件夹已存在，跳过sftp传输！')
+    if os.path.exists(local_path) and not not os.listdir(local_path):
+        print('kubernetes pki文件夹已存在，跳过ssh验证与sftp传输！')
         return True
     else:
         try:
-            print('kubernetes pki文件夹不存在，正在传输kubernetes pki文件，请稍等！')
+            if os.path.exists(local_path):
+                shutil.rmtree(local_path)
+            print('正在传输kubernetes pki文件，请稍等！\r')
             os.makedirs(local_path)
             t = paramiko.Transport(ip, port)
             t.connect(username=username, password=password)
             sftp = paramiko.SFTPClient.from_transport(t)
             remote_files = sftp.listdir(server_path)
-            for file in remote_files:
-                print('正在同步文件: {0}'.format(file))
+            total = len(remote_files)
+            scale = total * 10
+            for i in range(0, scale, 10):
+                file = remote_files[int(i / 10)]
+                print("\r", end="")
+                print("传输进度: {}%: ".format(round(i * 10 / total, 1)), "▋" * (i // 2), end="")
                 local_file = local_path + file
                 remote_file = server_path + file
                 if not os.path.exists(local_file):
                     sftp.get(remote_file, local_file)
+                sys.stdout.flush()
+            print('\r')
+            print("文件按传输完成，正在启动kt-connect！\r")
             t.close()
             return True
         except Exception as e:
             print('传输kubernetes pki文件失败，错误原因: {0}'.format(e.args))
+            shutil.rmtree(local_path)
             return False
 
 
@@ -150,7 +176,7 @@ def generate_config(ip, config_path):
     file.close()
 
 
-def exec_command(base_dir):
+def exec_command():
     if os.path.exists(os.path.expanduser('~') + '/.ktctl/pid'): os.remove(os.path.expanduser('~') + '/.ktctl/pid')
     command = 'ktctl -d -i abcsys.cn:5000/public/kt-connect-shadow:stable  --namespace=kube-system connect ' \
               '--method=socks5 --dump2hosts'
@@ -158,12 +184,12 @@ def exec_command(base_dir):
     os.system(command)
 
 
-def store_servers(ip, username, password, servers_file):
+def store_servers(ip, username, password, image, servers_file):
     r = {
         "ip": ip,
         "username": username,
         "password": password,
-        "image": "abcsys.cn:5000/public/kt-connect-shadow:stable",
+        "image": image,
         "date": generate_time()
     }
     if not os.path.exists(servers_file) or 0 == os.path.getsize(servers_file):
