@@ -1,3 +1,4 @@
 IPy
 paramiko
 PyYAML
+PyQt5

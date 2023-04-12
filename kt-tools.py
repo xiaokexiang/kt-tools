@@ -1,10 +1,16 @@
 import json
 import os
+import re
 import shutil
 import sys
 import time
 from functools import reduce
 
+"""
+1. 支持删除
+2. 支持ssh
+3. 支持md5文件比对kubernetes pki
+"""
 import IPy
 import paramiko
 import yaml
@@ -93,20 +99,37 @@ def check_file(servers_file):
             result = {}
             for index, s in enumerate(servers):
                 server = dict(s)
-                console_txt = console_txt + ' {0}. 地址: {1}, 用户名: {2}, 密码: {3}, 镜像: {4}, 更新时间: {5} \r\n'.format(
+                console_txt = console_txt + ' {0}. 地址: {1}, 用户名: {2}, 密码: {3}, 镜像: {4}\r\n'.format(
                     index + 1,
                     server.get('ip'),
                     server.get('username'),
                     server.get('password'),
-                    server.get('image'),
-                    server.get('date'))
+                    server.get('image'))
                 result[index + 1] = server
-            console_txt = console_txt + '请输入序号选择（如果新增直接回车）: \r\n'
-            select = input(console_txt)
-            if select == '' or result.get(int(select)) is None:
-                return True, {}
-            else:
-                return True, result.get(int(select))
+            loop = 1
+            while True:
+                if loop == 1:
+                    console_txt = console_txt if '请输入序号选择节点: （回车新增节点，0删除节点）\r\n' in console_txt else console_txt + '请输入序号选择节点: （回车新增节点，0删除节点）\r\n'
+                    select = input(console_txt)
+                    if select.isdigit():
+                        loop = 2
+                    elif select == '':
+                        return True, {}
+                    elif result.get(int(select)) is not None:
+                        return True, result.get(int(select))
+                elif loop == 2:
+                    if select == '0':
+                        ip_ids = input('请输入需要删除的节点id（多个节点请用逗号分割，输入0返回上一级）\r\n')
+                        if ip_ids == '0':
+                            loop = 1
+                        elif re.findall(r'(?!0)\b\d+(,\d+)*\b', ip_ids).__len__() == 1:
+                            print(123)
+                            return True, {}
+                        else:
+                            continue
+
+                    if ip_ids is None or ip_ids == '' or re.fullmatch(r'\d+(,\d+)*', s) is not None:
+                        continue
     except Exception as e:
         return False, {}
 
@@ -192,8 +215,7 @@ def store_servers(ip, username, password, image, servers_file):
         "ip": ip,
         "username": username,
         "password": password,
-        "image": image,
-        "date": generate_time()
+        "image": image
     }
     if not os.path.exists(servers_file) or 0 == os.path.getsize(servers_file):
         with open(servers_file, 'w', encoding='utf-8') as f:
