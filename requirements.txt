@@ -2,3 +2,4 @@ IPy
 paramiko
 PyYAML
 PyQt5
+Observer
